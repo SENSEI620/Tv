@@ -469,7 +469,10 @@ function iniciarReproducao(url, viaProxy) {
   aoFalhar = () => {
     if (id !== tentativaId) return;               // tentativa antiga, ignora
     if (!usarProxy && TEM_PROXY) { iniciarReproducao(url, true); return; }
-    foraDoAr();
+    if (!usarProxy) { foraDoAr(); return; }
+    // já tentou pelo proxy: descobre o motivo para mostrar na tela
+    aoFalhar = null;
+    diagnosticar(url).then(motivo => { if (id === tentativaId) foraDoAr(motivo); });
   };
 
   if (url.indexOf(".m3u8") !== -1 && window.Hls && Hls.isSupported()) {
@@ -486,9 +489,24 @@ function iniciarReproducao(url, viaProxy) {
   v.play().catch(() => {});
 }
 
-function foraDoAr() {
+// Pergunta ao proxy o que aconteceu com o canal
+async function diagnosticar(url) {
+  try {
+    const r = await fetch(urlProxy(url));
+    const instalado = r.headers.get("X-Proxy") === "1";
+    if (r.body) r.body.cancel();
+    if (!instalado) return "O proxy não está no Vercel (falta a pasta api/).";
+    if (r.status === 403 || r.status === 451) return "O servidor do canal recusou o acesso (bloqueio por país?).";
+    if (r.status === 502) return "O servidor do canal não respondeu.";
+    if (!r.ok) return "O canal respondeu com erro " + r.status + ".";
+    return "O canal respondeu, mas o vídeo não abriu.";
+  } catch (e) { return "Sem conexão com o proxy."; }
+}
+
+function foraDoAr(motivo) {
   el("carregando").style.display = "none";
-  let msg = "Esse canal está fora do ar ou bloqueado.\nUse ▲ ▼ para trocar de canal.";
+  const msg = "Esse canal está fora do ar ou bloqueado." + (motivo ? "\n" + motivo : "") +
+              "\nUse ▲ ▼ para trocar de canal.";
   mostrarAviso(msg, 3000);   // some sozinho em 3 segundos
 }
 

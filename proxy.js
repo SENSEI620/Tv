@@ -4,12 +4,14 @@
 // - Contorna bloqueio de CORS
 // - Reescreve listas .m3u8 para que os pedaços do vídeo também passem pelo proxy
 
-export const config = { runtime: "edge" };
+// regions: roda o proxy em São Paulo, para canais que só liberam IP do Brasil
+export const config = { runtime: "edge", regions: ["gru1"] };
 
 const CORS = {
+  "X-Proxy": "1",   // o app usa isso para saber que o proxy está instalado
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "Range, Content-Type",
-  "Access-Control-Expose-Headers": "Content-Length, Content-Range, Content-Type",
+  "Access-Control-Expose-Headers": "Content-Length, Content-Range, Content-Type, X-Proxy",
 };
 
 // Impede que o proxy seja usado para acessar redes internas
