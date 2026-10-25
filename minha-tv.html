@@ -1,0 +1,1071 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Minha TV</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/hls.js/1.5.13/hls.min.js"></script>
+<style>
+  :root { --vermelho: #e50914; --fundo: #141414; --cartao: #232323; --suave: #b3b3b3; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { font-size: 18px; font-size: clamp(14px, 1.2vw, 28px); }   /* tudo usa "rem", então escala sozinho (PC e TV) */
+  html, body { height: 100%; }
+  body { background: #000; color: #fff; font-family: "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; overflow: hidden; }
+  body.ocioso { cursor: none; }
+  button { font-family: inherit; }
+
+  /* ---------- Vídeo ---------- */
+  #video { position: fixed; left: 0; top: 0; width: 100%; height: 100%; object-fit: contain; background: #000; }
+  #carregando { position: fixed; left: 50%; top: 50%; width: 3.5rem; height: 3.5rem; margin: -1.75rem 0 0 -1.75rem; border: .4rem solid rgba(255,255,255,.2); border-top-color: var(--vermelho); border-radius: 50%; animation: giro 1s linear infinite; display: none; z-index: 15; }
+  @keyframes giro { to { transform: rotate(360deg); } }
+
+  /* ---------- Faixa que aparece ao trocar de canal ---------- */
+  #info { position: fixed; left: 3rem; bottom: 3rem; display: flex; align-items: center; padding: 1rem 1.8rem; background: linear-gradient(90deg, rgba(0,0,0,.88), rgba(0,0,0,.5)); border-left: .3rem solid var(--vermelho); border-radius: .5rem; opacity: 0; transform: translateY(1rem); transition: opacity .3s, transform .3s; z-index: 25; pointer-events: none; max-width: 80%; }
+  #info.on { opacity: 1; transform: none; }
+  #info-num { font-size: 2.6rem; font-weight: 800; color: var(--vermelho); margin-right: 1.2rem; }
+  #info-nome { font-size: 1.7rem; font-weight: 700; }
+  #info-grupo { font-size: 1rem; color: var(--suave); margin-top: .2rem; }
+
+  #digitos { position: fixed; right: 3rem; top: 2rem; font-size: 4.5rem; font-weight: 800; background: rgba(0,0,0,.8); padding: .2rem 1.6rem; border-radius: .6rem; display: none; z-index: 30; }
+  #aviso { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); font-size: 1.8rem; text-align: center; background: rgba(0,0,0,.88); padding: 1.4rem 2.2rem; border-radius: .8rem; display: none; white-space: pre-line; z-index: 30; max-width: 80%; }
+
+  /* ---------- Botões que aparecem quando mexe o mouse (PC) ---------- */
+  #controles { position: fixed; right: 1.5rem; top: 1.2rem; display: flex; align-items: center; background: rgba(0,0,0,.6); padding: .4rem .8rem; border-radius: 3rem; opacity: 0; pointer-events: none; transition: opacity .25s; z-index: 18; }
+  #controles.visivel { opacity: 1; pointer-events: auto; }
+  #ctl-nome { max-width: 16rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin: 0 .8rem 0 .6rem; font-weight: 600; }
+  .ctl { background: none; border: 0; color: #fff; font-size: 1.3rem; width: 2.6rem; height: 2.6rem; border-radius: 50%; cursor: pointer; }
+  .ctl:hover { background: rgba(255,255,255,.22); }
+  .ctl.ativo { color: #ffc107; }
+  #volume { width: 6rem; margin: 0 .5rem; accent-color: var(--vermelho); }
+
+  /* ---------- Guia de canais (estilo Netflix) ---------- */
+  #guia { position: fixed; left: 0; top: 0; right: 0; bottom: 0; background: radial-gradient(ellipse at top, #2d0a0e 0%, #141414 55%); display: none; flex-direction: column; z-index: 20; }
+  #guia.on { display: flex; }
+  #topo { display: flex; align-items: center; padding: 1rem 3.5rem; background: rgba(0,0,0,.35); flex-shrink: 0; }
+  #logo { color: var(--vermelho); font-weight: 900; font-size: 1.7rem; letter-spacing: .15em; margin-right: 2.2rem; white-space: nowrap; }
+  #busca-caixa { flex: 1; max-width: 40rem; display: flex; align-items: center; background: rgba(0,0,0,.6); border: .15rem solid #555; border-radius: .5rem; padding: .6rem 1rem; transition: border-color .15s, background .15s; }
+  #busca-caixa:focus-within, #busca-caixa.foco { border-color: #fff; background: #000; }
+  #busca-caixa .lupa { margin-right: .7rem; opacity: .8; }
+  #busca { flex: 1; background: none; border: 0; outline: none; color: #fff; font-size: 1.2rem; min-width: 0; }
+  #assistindo { margin-left: auto; margin-right: 1.2rem; color: var(--suave); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 22rem; }
+  #btn-fechar { background: rgba(255,255,255,.14); border: 0; color: #fff; font-size: 1.2rem; width: 2.6rem; height: 2.6rem; border-radius: 50%; cursor: pointer; flex-shrink: 0; }
+  #btn-fechar:hover { background: rgba(255,255,255,.3); }
+
+  #conteudo { flex: 1; overflow-y: auto; padding: 1rem 3.5rem 3rem; }
+  #conteudo::-webkit-scrollbar { width: .6rem; }
+  #conteudo::-webkit-scrollbar-thumb { background: #444; border-radius: .3rem; }
+  #dica { padding: .7rem 3.5rem; font-size: .95rem; color: var(--suave); background: rgba(0,0,0,.55); flex-shrink: 0; }
+
+  .voltar { background: rgba(255,255,255,.12); border: 0; color: #fff; padding: .45rem 1.1rem; border-radius: .4rem; font-size: 1rem; cursor: pointer; margin-top: .6rem; }
+  .voltar:hover { background: rgba(255,255,255,.25); }
+  .titulo-pagina { font-size: 1.9rem; font-weight: 800; margin: .8rem 0 .3rem; }
+  .sub { color: var(--suave); margin-bottom: .6rem; }
+  .vazio { color: var(--suave); font-size: 1.4rem; padding: 2rem 0; white-space: pre-line; }
+
+  .linha { margin: 1.2rem 0 .4rem; }
+  .linha.grade { margin: 0; }
+  .linha h2 { font-size: 1.4rem; font-weight: 700; color: #e5e5e5; margin-bottom: .2rem; }
+  .trilho { position: relative; }
+  .faixa { display: flex; padding: .7rem .7rem; }
+  .carrossel .faixa { overflow-x: auto; scrollbar-width: none; }
+  .carrossel .faixa::-webkit-scrollbar { display: none; }
+  .seta { position: absolute; top: .7rem; bottom: .7rem; width: 3rem; border: 0; background: rgba(0,0,0,.65); color: #fff; font-size: 2.2rem; cursor: pointer; opacity: 0; transition: opacity .2s; z-index: 6; }
+  .trilho:hover .seta { opacity: 1; }
+  .seta.esq { left: 0; border-radius: .5rem 0 0 .5rem; }
+  .seta.dir { right: 0; border-radius: 0 .5rem .5rem 0; }
+
+  /* ---------- Cartão do canal ---------- */
+  .card { position: relative; flex: 0 0 13rem; width: 13rem; height: 8.2rem; margin-right: 1rem; border-radius: .6rem; overflow: hidden; cursor: pointer; background: var(--cartao); box-shadow: 0 .2rem .6rem rgba(0,0,0,.5); transition: transform .15s, box-shadow .15s; }
+  .card.foco, .card:hover { transform: scale(1.08); box-shadow: 0 0 0 .2rem #fff, 0 1rem 2rem rgba(0,0,0,.7); z-index: 5; }
+  .card.melhor { box-shadow: 0 0 0 .2rem var(--vermelho); }
+  .card.melhor.foco { box-shadow: 0 0 0 .2rem #fff, 0 1rem 2rem rgba(0,0,0,.7); }
+  .arte { position: absolute; left: 0; top: 0; right: 0; bottom: 0; }
+  .arte .ini { position: absolute; left: 0; right: 0; top: 1.2rem; text-align: center; font-size: 2.6rem; font-weight: 800; color: rgba(255,255,255,.88); letter-spacing: .05em; }
+  .arte img { position: absolute; left: 1rem; right: 1rem; top: .9rem; width: calc(100% - 2rem); height: calc(100% - 3.4rem); object-fit: contain; }
+  .nome { position: absolute; left: 0; right: 0; bottom: 0; padding: 1.5rem .7rem .5rem; background: linear-gradient(transparent, rgba(0,0,0,.9)); font-size: .95rem; font-weight: 600; }
+  .nome-j { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  /* nome comprido no cartão selecionado: o texto corre de um lado pro outro para mostrar tudo */
+  .card.longo .nome-j { text-overflow: clip; }
+  .card.longo .nome-t { display: inline-block; animation: rolar var(--tempo) ease-in-out .5s infinite alternate; }
+  @keyframes rolar { 0%, 12% { transform: translateX(0); } 88%, 100% { transform: translateX(var(--desloca)); } }
+  .num { position: absolute; left: .45rem; top: .45rem; background: rgba(0,0,0,.7); padding: .1rem .5rem; border-radius: .3rem; font-size: .8rem; font-weight: 700; }
+  .estrela { position: absolute; right: .35rem; top: .3rem; background: rgba(0,0,0,.55); border: 0; border-radius: 50%; width: 1.9rem; height: 1.9rem; font-size: 1.1rem; color: rgba(255,255,255,.7); cursor: pointer; opacity: 0; transition: opacity .15s; }
+  .card:hover .estrela, .card.foco .estrela, .estrela.on { opacity: 1; }
+  .estrela.on { color: #ffc107; }
+  .ver-todos { display: flex; flex-direction: column; align-items: center; justify-content: center; background: linear-gradient(135deg, #383838, #1c1c1c); }
+  .vt-n { font-size: 2.2rem; font-weight: 800; }
+  .vt-t { color: var(--suave); font-size: 1.05rem; }
+
+  /* ---------- Tela inicial ---------- */
+  #inicio { position: fixed; left: 0; top: 0; right: 0; bottom: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 2rem; z-index: 40; background: radial-gradient(circle at 50% 35%, #3b0b10 0%, #0a0a0a 70%); }
+  #inicio-logo { font-size: 4.5rem; font-weight: 900; letter-spacing: .2em; color: var(--vermelho); margin-bottom: 1.5rem; }
+  #inicio-msg { font-size: 1.6rem; white-space: pre-line; margin-bottom: 1.8rem; }
+  #inicio-botao { display: none; background: var(--vermelho); color: #fff; font-weight: 700; font-size: 1.6rem; padding: .9rem 2.8rem; border-radius: .5rem; cursor: pointer; box-shadow: 0 0 0 .25rem rgba(255,255,255,.9); }
+  #inicio-botao:hover { transform: scale(1.05); }
+  #inicio-dicas { margin-top: 2.2rem; font-size: 1.05rem; color: var(--suave); line-height: 1.9; }
+</style>
+</head>
+<body>
+
+<video id="video" autoplay playsinline></video>
+<div id="carregando"></div>
+
+<div id="info">
+  <div id="info-num"></div>
+  <div><div id="info-nome"></div><div id="info-grupo"></div></div>
+</div>
+<div id="digitos"></div>
+<div id="aviso"></div>
+
+<!-- botões do player (aparecem quando mexe o mouse) -->
+<div id="controles">
+  <span id="ctl-nome"></span>
+  <button class="ctl" id="btn-ant" title="Canal anterior">‹</button>
+  <button class="ctl" id="btn-prox" title="Próximo canal">›</button>
+  <button class="ctl" id="btn-fav" title="Favoritar">☆</button>
+  <button class="ctl" id="btn-mudo" title="Mudo">🔊</button>
+  <input type="range" id="volume" min="0" max="1" step="0.05" value="1">
+  <button class="ctl" id="btn-tela" title="Tela cheia">⛶</button>
+  <button class="ctl" id="btn-guia" title="Lista de canais">☰</button>
+</div>
+
+<!-- guia de canais -->
+<div id="guia">
+  <div id="topo">
+    <div id="logo">MINHA TV</div>
+    <label id="busca-caixa">
+      <span class="lupa">🔍</span>
+      <input id="busca" type="text" placeholder="Buscar pelo nome ou número do canal..." autocomplete="off" spellcheck="false">
+    </label>
+    <div id="assistindo"></div>
+    <button id="btn-fechar" title="Fechar (Esc)">✕</button>
+  </div>
+  <div id="conteudo"></div>
+  <div id="dica">▲ ▼ ◄ ► navegar &nbsp;•&nbsp; OK assistir &nbsp;•&nbsp; digite para buscar &nbsp;•&nbsp; Amarelo ou * favoritar &nbsp;•&nbsp; Voltar fecha</div>
+</div>
+
+<!-- tela inicial -->
+<div id="inicio">
+  <div id="inicio-logo">MINHA TV</div>
+  <div id="inicio-msg">Carregando canais...</div>
+  <div id="inicio-botao">▶ Ligar a TV</div>
+  <div id="inicio-dicas">
+    ▲ ▼ trocam de canal &nbsp;•&nbsp; OK abre a lista &nbsp;•&nbsp; ► favorita o canal<br>
+    Números vão direto ao canal &nbsp;•&nbsp; Letras abrem a busca
+  </div>
+</div>
+<input type="file" id="input-arquivo" accept=".m3u,.m3u8,text/plain" style="display:none">
+
+<script>
+// ============================================================
+//  CONFIGURAÇÃO (é só mexer aqui)
+// ============================================================
+
+// Link da lista de canais. Para só canais do Brasil, troque por:
+// "https://iptv-org.github.io/iptv/countries/br.m3u"
+const LINK_FIXO = "https://iptv-org.github.io/iptv/index.m3u";
+
+const HORAS_CACHE = 12;     // guarda a lista no navegador por 12h (abre mais rápido)
+const LIMITE_LINHA = 30;    // quantos canais aparecem em cada fileira da tela inicial
+const LIMITE_GRADE = 300;   // máximo de canais numa tela de "Ver todos"
+const LIMITE_BUSCA = 120;   // máximo de resultados da busca
+
+// Ordem das fileiras na tela inicial (as que não estão aqui vêm depois, em ordem alfabética)
+const ORDEM = ["Notícias", "Esportes", "Filmes", "Séries", "Entretenimento", "Infantil",
+               "Documentários", "Música", "Geral", "Cultura", "Educação", "Religioso"];
+
+// Nomes das categorias em português. Se aparecer alguma em inglês, é só adicionar aqui.
+const TRADUCAO = {
+  "News": "Notícias", "Sports": "Esportes", "Kids": "Infantil", "Movies": "Filmes",
+  "Music": "Música", "Entertainment": "Entretenimento", "General": "Geral",
+  "Religious": "Religioso", "Culture": "Cultura", "Education": "Educação",
+  "Documentary": "Documentários", "Series": "Séries", "Animation": "Animação",
+  "Comedy": "Comédia", "Lifestyle": "Estilo de vida", "Business": "Negócios",
+  "Outdoor": "Ao ar livre", "Science": "Ciência", "Travel": "Viagem",
+  "Weather": "Clima", "Family": "Família", "Legislative": "Legislativo",
+  "Public": "Público", "Undefined": "Outros", "Classic": "Clássicos",
+  "Cooking": "Culinária", "Interactive": "Interativo", "Shop": "Compras"
+};
+
+// Tamanhos usados para calcular quantos cartões cabem por linha (igual ao CSS, em rem)
+const CARD_REM = 13, GAP_REM = 1, PAD_REM = 3.5 + 0.7;
+
+// ============================================================
+//  VARIÁVEIS
+// ============================================================
+let canais = [];            // todos os canais (a posição na lista = número do canal - 1)
+let porUrl = {};            // achar canal pelo link
+let porGrupo = {};          // canais de cada categoria
+let grupos = [];            // categorias, na ordem de exibição
+
+let estado = "carregando";  // carregando | pronto | sem-lista | ligado
+let menuAberto = false;     // guia aberto?
+let mudoPeloGuia = false;   // o guia colocou o som no mudo?
+let atual = null;           // canal tocando agora
+let listaZap = [];          // lista usada pelos botões ▲ ▼
+let hls = null;
+
+let view = { tipo: "home", linhas: [] };  // o que o guia está mostrando
+let cur = { r: 0, c: 0 };   // cartão selecionado (linha, coluna)
+let zona = "grade";         // onde está o foco: "grade" ou "busca"
+let cartoes = [];           // cartoes[linha][coluna] = elemento
+let todosCartoes = [];      // todos os cartões na tela (para atualizar estrelas)
+let cartaoFocado = null;
+
+let favoritos = lerJSON("favoritos");
+let ultimos = lerJSON("ultimos");
+let bufferDigitos = "";
+let tDigitos, tInfo, tAviso, tControles, tResize;
+
+const el = id => document.getElementById(id);
+
+// ---------- guardar coisas no navegador (com proteção contra erro) ----------
+function guardar(chave, valor) { try { localStorage.setItem(chave, valor); } catch (e) {} }
+function ler(chave) { try { return localStorage.getItem(chave); } catch (e) { return null; } }
+function lerJSON(chave) { try { return JSON.parse(ler(chave) || "[]"); } catch (e) { return []; } }
+
+// ---------- guardar a lista grande (IndexedDB, porque ela é maior que o limite do localStorage) ----------
+function abrirDB() {
+  return new Promise((ok, erro) => {
+    const r = indexedDB.open("minhatv", 1);
+    r.onupgradeneeded = () => r.result.createObjectStore("kv");
+    r.onsuccess = () => ok(r.result);
+    r.onerror = () => erro(r.error);
+  });
+}
+async function dbLer(chave) {
+  try {
+    const db = await abrirDB();
+    return await new Promise(ok => {
+      const q = db.transaction("kv").objectStore("kv").get(chave);
+      q.onsuccess = () => ok(q.result);
+      q.onerror = () => ok(undefined);
+    });
+  } catch (e) { return undefined; }
+}
+async function dbGuardar(chave, valor) {
+  try {
+    const db = await abrirDB();
+    await new Promise(ok => {
+      const tx = db.transaction("kv", "readwrite");
+      tx.objectStore("kv").put(valor, chave);
+      tx.oncomplete = ok; tx.onerror = ok; tx.onabort = ok;
+    });
+  } catch (e) {}
+}
+
+// ============================================================
+//  LER A LISTA M3U
+// ============================================================
+function lerM3U(texto) {
+  const linhas = texto.split("\n").map(l => l.trim());
+  const lista = [];
+  let c = null;
+
+  for (const l of linhas) {
+    if (l.startsWith("#EXTINF")) {
+      const grupoBruto = (l.match(/group-title="([^"]*)"/) || [])[1] || "Undefined";
+      const primeiro = grupoBruto.split(";")[0].trim() || "Undefined";
+      c = {
+        nome: l.substring(l.lastIndexOf(",") + 1).trim() || "Sem nome",
+        logo: (l.match(/tvg-logo="([^"]*)"/) || [])[1] || "",
+        grupo: TRADUCAO[primeiro] || primeiro,
+        pular: primeiro.toUpperCase() === "XXX"      // conteúdo adulto fica de fora
+      };
+    } else if (l && !l.startsWith("#") && c) {
+      c.url = l;
+      if (!c.pular) lista.push(c);
+      c = null;
+    }
+  }
+  return lista;
+}
+
+function normalizar(s) {
+  return s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");   // tira acentos e maiúsculas
+}
+
+// ============================================================
+//  CARREGAR OS CANAIS
+// ============================================================
+async function iniciar() {
+  let texto = null;
+
+  // 1) usa a cópia guardada se ainda estiver "fresca"
+  const cache = await dbLer("lista");
+  if (cache && cache.link === LINK_FIXO && Date.now() - cache.quando < HORAS_CACHE * 3600 * 1000) texto = cache.texto;
+
+  // 2) senão, baixa do link
+  if (!texto && LINK_FIXO) {
+    try {
+      const resp = await fetch(LINK_FIXO);
+      const t = await resp.text();
+      if (t.indexOf("#EXTM3U") !== -1) {
+        texto = t;
+        dbGuardar("lista", { texto: t, quando: Date.now(), link: LINK_FIXO });
+      }
+    } catch (e) {}
+  }
+
+  // 3) se falhou, usa a cópia antiga (melhor que nada)
+  if (!texto && cache) texto = cache.texto;
+
+  if (texto) usarLista(texto);
+  else semLista("Não consegui carregar os canais.\nEscolha o arquivo da lista (.m3u) do seu aparelho.");
+}
+
+function usarLista(texto) {
+  const lista = lerM3U(texto);
+  if (lista.length === 0) { semLista("Não achei canais nessa lista."); return; }
+
+  const col = new Intl.Collator("pt");
+  lista.sort((a, b) => col.compare(a.nome, b.nome));
+
+  porUrl = {};
+  porGrupo = {};
+  lista.forEach((c, i) => {
+    c.numero = i + 1;                                           // número do canal, como numa TV
+    c.busca = normalizar(c.nome);                               // nome sem acento, para a busca
+    c.palavras = c.busca.split(/[^a-z0-9]+/).filter(Boolean);
+    porUrl[c.url] = c;
+    (porGrupo[c.grupo] = porGrupo[c.grupo] || []).push(c);
+  });
+  canais = lista;
+
+  const primeiros = ORDEM.filter(g => porGrupo[g]);
+  const resto = Object.keys(porGrupo)
+    .filter(g => primeiros.indexOf(g) === -1 && g !== "Outros")
+    .sort((a, b) => col.compare(a, b));
+  grupos = primeiros.concat(resto);
+  if (porGrupo["Outros"]) grupos.push("Outros");
+
+  estado = "pronto";
+  setSplash("Pronto! " + canais.length + " canais carregados.", "▶ Ligar a TV");
+}
+
+function semLista(msg) {
+  estado = "sem-lista";
+  setSplash(msg, "Escolher arquivo da lista");
+}
+
+function setSplash(msg, botao) {
+  el("inicio-msg").textContent = msg;
+  const b = el("inicio-botao");
+  if (botao) { b.textContent = botao; b.style.display = "inline-block"; }
+  else b.style.display = "none";
+}
+
+// ============================================================
+//  BUSCA (nome ou número) — mostra os mais parecidos primeiro
+// ============================================================
+function subsequencia(texto, q) {          // "sprtv" é parecido com "sportv"
+  let i = 0;
+  for (let k = 0; k < texto.length; k++) {
+    if (texto.charAt(k) === q.charAt(i)) i++;
+    if (i === q.length) return true;
+  }
+  return false;
+}
+
+function pontuar(c, q, tokens) {
+  const b = c.busca;
+  if (b === q) return 100;                                          // nome exato
+  if (b.startsWith(q)) return 90;                                   // começa com o que digitou
+  if (c.palavras.some(p => p.startsWith(q))) return 70;             // alguma palavra começa com isso
+  if (tokens.length > 1 && tokens.every(t => b.indexOf(t) !== -1)) return 60;   // "globo news"
+  if (b.indexOf(q) !== -1) return 55;                               // contém
+  const sem = q.replace(/ /g, "");
+  if (sem.length >= 3 && subsequencia(b, sem)) return 25;           // letras na ordem (parecido)
+  return 0;
+}
+
+function buscar(texto) {
+  const q = normalizar(texto).trim();
+  if (!q) return [];
+  const tokens = q.split(/\s+/).filter(Boolean);
+  const soNumero = /^[0-9]+$/.test(q);
+  const achados = [];
+
+  for (const c of canais) {
+    let p = 0;
+    if (soNumero) {
+      const n = String(c.numero);
+      if (n === q) p = 200;
+      else if (n.startsWith(q)) p = 120;
+      else p = pontuar(c, q, tokens) ? 30 : 0;
+    } else {
+      p = pontuar(c, q, tokens);
+    }
+    if (p > 0) {
+      if (favoritos.indexOf(c.url) !== -1) p += 5;     // favoritos sobem na lista
+      if (ultimos.indexOf(c.url) !== -1) p += 3;       // os que você viu há pouco também
+      achados.push({ c: c, p: p });
+    }
+  }
+  achados.sort((a, b) =>
+    b.p - a.p ||
+    (soNumero ? a.c.numero - b.c.numero : a.c.nome.length - b.c.nome.length || a.c.numero - b.c.numero));
+  return achados.map(x => x.c);
+}
+
+// ============================================================
+//  FAVORITOS E ÚLTIMOS
+// ============================================================
+function ehFavorito(canal) { return favoritos.indexOf(canal.url) !== -1; }
+function listaFavoritos() { return favoritos.map(u => porUrl[u]).filter(Boolean); }
+function listaUltimos() { return ultimos.map(u => porUrl[u]).filter(Boolean); }
+
+function favoritar(canal) {
+  const i = favoritos.indexOf(canal.url);
+  if (i === -1) favoritos.push(canal.url); else favoritos.splice(i, 1);
+  guardar("favoritos", JSON.stringify(favoritos));
+  const agora = ehFavorito(canal);
+  mostrarAviso(agora ? "★ Adicionado aos favoritos" : "Removido dos favoritos", 1500);
+  todosCartoes.forEach(card => {
+    if (card._canal && card._canal.url === canal.url) card._estrela.classList.toggle("on", agora);
+  });
+  atualizarBotoes();
+  if (!menuAberto) mostrarInfo(canal);
+}
+
+// ============================================================
+//  TOCAR O CANAL
+// ============================================================
+function tocar(canal, lista) {
+  atual = canal;
+  listaZap = lista || canais;
+  ultimos = ultimos.filter(u => u !== canal.url);
+  ultimos.unshift(canal.url);
+  ultimos = ultimos.slice(0, 10);
+  guardar("ultimos", JSON.stringify(ultimos));
+  guardar("ultimo", canal.url);
+
+  el("aviso").style.display = "none";
+  el("carregando").style.display = "block";
+  const v = el("video");
+  if (hls) { hls.destroy(); hls = null; }
+
+  if (canal.url.indexOf(".m3u8") !== -1 && window.Hls && Hls.isSupported()) {
+    hls = new Hls();
+    hls.loadSource(canal.url);
+    hls.attachMedia(v);
+    hls.on(Hls.Events.ERROR, (ev, d) => { if (d.fatal) foraDoAr(); });
+  } else {
+    v.src = canal.url;
+  }
+  v.play().catch(() => {});
+  mostrarInfo(canal);
+  atualizarBotoes();
+}
+
+function foraDoAr() {
+  el("carregando").style.display = "none";
+  let msg = "Esse canal está fora do ar ou bloqueado.\nUse ▲ ▼ para trocar de canal.";
+  if (atual && atual.url.indexOf("http:") === 0 && location.protocol === "https:")
+    msg = "Esse canal usa um link http e o navegador bloqueou.\nUse ▲ ▼ para trocar de canal.";
+  mostrarAviso(msg, 0);
+}
+
+el("video").onplaying = () => { el("carregando").style.display = "none"; };
+el("video").onwaiting = () => { if (atual) el("carregando").style.display = "block"; };
+el("video").onerror = () => { if (atual) foraDoAr(); };
+
+// trocar de canal com ▲ ▼ (dentro da última lista que você usou)
+function zap(delta) {
+  const lista = listaZap.length ? listaZap : canais;
+  let i = lista.findIndex(c => atual && c.url === atual.url);
+  i = (i === -1) ? 0 : (i + delta + lista.length) % lista.length;
+  tocar(lista[i], lista);
+}
+
+// ============================================================
+//  NÚMEROS (digitar o número do canal)
+// ============================================================
+function digitar(d) {
+  if (bufferDigitos.length >= 5) bufferDigitos = "";
+  bufferDigitos += d;
+  el("digitos").textContent = bufferDigitos;
+  el("digitos").style.display = "block";
+  clearTimeout(tDigitos);
+  tDigitos = setTimeout(confirmarDigitos, 1500);
+}
+
+function confirmarDigitos() {
+  clearTimeout(tDigitos);
+  const n = parseInt(bufferDigitos, 10);
+  bufferDigitos = "";
+  el("digitos").style.display = "none";
+  irParaNumero(n);
+}
+
+function irParaNumero(n) {
+  const c = canais[n - 1];
+  if (c) tocar(c, canais);
+  else mostrarAviso("O canal " + n + " não existe", 2000);
+}
+
+// ============================================================
+//  MENSAGENS NA TELA
+// ============================================================
+function mostrarInfo(c) {
+  if (!c) return;
+  el("info-num").textContent = c.numero;
+  el("info-nome").textContent = c.nome + (ehFavorito(c) ? "  ★" : "");
+  el("info-grupo").textContent = c.grupo;
+  el("info").classList.add("on");
+  clearTimeout(tInfo);
+  tInfo = setTimeout(() => el("info").classList.remove("on"), 4000);
+}
+
+function mostrarAviso(texto, ms) {
+  el("aviso").textContent = texto;
+  el("aviso").style.display = "block";
+  clearTimeout(tAviso);
+  if (ms) tAviso = setTimeout(() => { el("aviso").style.display = "none"; }, ms);
+}
+
+function atualizarBotoes() {
+  const fav = !!(atual && ehFavorito(atual));
+  el("btn-fav").textContent = fav ? "★" : "☆";
+  el("btn-fav").classList.toggle("ativo", fav);
+  el("ctl-nome").textContent = atual ? atual.nome : "";
+  el("assistindo").textContent = atual ? "▶ " + atual.nome : "";
+}
+
+// ============================================================
+//  GUIA: montar o que aparece na tela
+// ============================================================
+
+// Tela inicial: fileiras estilo Netflix
+function montarHome() {
+  const linhas = [];
+  const favs = listaFavoritos();
+  if (favs.length) linhas.push({ titulo: "★ Meus favoritos", itens: favs.slice(0, 40), todos: favs });
+  const rec = listaUltimos();
+  if (rec.length) linhas.push({ titulo: "Continuar assistindo", itens: rec, todos: rec });
+
+  grupos.forEach(g => {
+    const lista = porGrupo[g];
+    const itens = lista.slice(0, LIMITE_LINHA);
+    if (lista.length > LIMITE_LINHA) itens.push({ verTodos: g, total: lista.length });
+    linhas.push({ titulo: g, itens: itens, todos: lista });
+  });
+  view = { tipo: "home", linhas: linhas };
+}
+
+// Quantos cartões cabem em cada linha da grade
+function calcularColunas() {
+  const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+  const largura = el("conteudo").clientWidth - 2 * PAD_REM * rem;
+  return Math.max(1, Math.floor((largura + GAP_REM * rem) / ((CARD_REM + GAP_REM) * rem)));
+}
+
+// Tela de grade (categoria completa ou resultados da busca)
+function montarGrade(titulo, lista, tipo) {
+  const cols = calcularColunas();
+  const mostrar = lista.slice(0, LIMITE_GRADE);
+  const linhas = [];
+  for (let i = 0; i < mostrar.length; i += cols) linhas.push({ itens: mostrar.slice(i, i + cols), todos: lista });
+  view = { tipo: tipo, titulo: titulo, grupo: titulo, total: lista.length, linhas: linhas, aviso: "" };
+  if (lista.length > LIMITE_GRADE) view.aviso = "Mostrando os " + LIMITE_GRADE + " primeiros. Use a busca para achar os outros.";
+}
+
+function montarBusca(q) {
+  const r = buscar(q).slice(0, LIMITE_BUSCA);
+  montarGrade("Resultados para “" + q + "”", r, "busca");
+  view.resultado = r;
+  view.busca = q;
+}
+
+// ============================================================
+//  GUIA: desenhar na tela
+// ============================================================
+function gradiente(nome) {
+  let h = 0;
+  for (let i = 0; i < nome.length; i++) h = (h * 31 + nome.charCodeAt(i)) % 360;
+  return "linear-gradient(145deg, hsl(" + h + ",55%,38%), hsl(" + ((h + 50) % 360) + ",55%,22%))";
+}
+
+function iniciais(nome) {
+  return nome.split(/\s+/).filter(Boolean).slice(0, 2).map(p => p.charAt(0)).join("").toUpperCase();
+}
+
+function criarCartao(item, r, c, linha) {
+  const card = document.createElement("div");
+  card.className = "card";
+
+  if (item.verTodos) {
+    card.classList.add("ver-todos");
+    const n = document.createElement("div"); n.className = "vt-n"; n.textContent = item.total;
+    const t = document.createElement("div"); t.className = "vt-t"; t.textContent = "Ver todos ›";
+    card.appendChild(n); card.appendChild(t);
+  } else {
+    const arte = document.createElement("div");
+    arte.className = "arte";
+    arte.style.background = gradiente(item.nome);
+
+    const ini = document.createElement("div");
+    ini.className = "ini";
+    ini.textContent = iniciais(item.nome);
+    arte.appendChild(ini);
+
+    if (item.logo) {
+      const img = document.createElement("img");
+      img.loading = "lazy";
+      img.alt = "";
+      img.onload = () => { ini.remove(); arte.style.background = "linear-gradient(145deg,#ffffff,#d6d9e0)"; };
+      img.onerror = () => img.remove();
+      img.src = item.logo;
+      arte.appendChild(img);
+    }
+    card.appendChild(arte);
+
+    const num = document.createElement("div");
+    num.className = "num";
+    num.textContent = item.numero;
+    card.appendChild(num);
+
+    const est = document.createElement("button");
+    est.className = "estrela" + (ehFavorito(item) ? " on" : "");
+    est.textContent = "★";
+    est.title = "Favoritar";
+    est.onclick = ev => { ev.stopPropagation(); favoritar(item); };
+    card.appendChild(est);
+
+    const nome = document.createElement("div");
+    nome.className = "nome";
+    const janela = document.createElement("div");      // "janela" que corta o texto
+    janela.className = "nome-j";
+    const texto = document.createElement("span");      // o texto, que anda quando é grande demais
+    texto.className = "nome-t";
+    texto.textContent = item.nome;
+    janela.appendChild(texto);
+    nome.appendChild(janela);
+    card.appendChild(nome);
+    card.title = item.nome;
+
+    card._canal = item;
+    card._estrela = est;
+    todosCartoes.push(card);
+  }
+
+  card.onclick = () => ativar(item, linha);
+  card.onmouseenter = () => {
+    cur = { r: r, c: c };
+    if (document.activeElement !== el("busca")) zona = "grade";
+    atualizarFoco(false);
+  };
+  return card;
+}
+
+function renderizar() {
+  const area = el("conteudo");
+  area.innerHTML = "";
+  cartoes = [];
+  todosCartoes = [];
+  cartaoFocado = null;
+
+  if (view.tipo !== "home") {
+    const voltar = document.createElement("button");
+    voltar.className = "voltar";
+    voltar.textContent = "‹ Início";
+    voltar.onclick = limparBusca;
+    area.appendChild(voltar);
+
+    const t = document.createElement("div");
+    t.className = "titulo-pagina";
+    t.textContent = view.titulo + "  (" + view.total + ")";
+    area.appendChild(t);
+
+    if (view.tipo === "busca" && view.total > 0) {
+      const s = document.createElement("div");
+      s.className = "sub";
+      s.textContent = "Enter assiste o primeiro resultado (borda vermelha). Use ▼ para escolher outro.";
+      area.appendChild(s);
+    }
+    if (view.aviso) {
+      const s = document.createElement("div");
+      s.className = "sub";
+      s.textContent = view.aviso;
+      area.appendChild(s);
+    }
+  }
+
+  if (view.linhas.length === 0) {
+    const v = document.createElement("div");
+    v.className = "vazio";
+    v.textContent = view.tipo === "busca"
+      ? "Nenhum canal parecido com “" + view.busca + "”.\nTente outro nome ou o número do canal."
+      : "Nenhum canal aqui.";
+    area.appendChild(v);
+  }
+
+  view.linhas.forEach((linha, r) => {
+    const bloco = document.createElement("div");
+    bloco.className = "linha " + (view.tipo === "home" ? "carrossel" : "grade");
+
+    if (linha.titulo) {
+      const h = document.createElement("h2");
+      h.textContent = linha.titulo;
+      bloco.appendChild(h);
+    }
+
+    const trilho = document.createElement("div");
+    trilho.className = "trilho";
+    const faixa = document.createElement("div");
+    faixa.className = "faixa";
+
+    cartoes[r] = [];
+    linha.itens.forEach((item, c) => {
+      const card = criarCartao(item, r, c, linha);
+      if (view.tipo === "busca" && r === 0 && c === 0) card.classList.add("melhor");
+      faixa.appendChild(card);
+      cartoes[r][c] = card;
+    });
+    trilho.appendChild(faixa);
+
+    if (view.tipo === "home") {            // setas ‹ › para o mouse
+      const esq = document.createElement("button");
+      esq.className = "seta esq"; esq.textContent = "‹";
+      esq.onclick = () => faixa.scrollBy({ left: -faixa.clientWidth * 0.8, behavior: "smooth" });
+      const dir = document.createElement("button");
+      dir.className = "seta dir"; dir.textContent = "›";
+      dir.onclick = () => faixa.scrollBy({ left: faixa.clientWidth * 0.8, behavior: "smooth" });
+      trilho.appendChild(esq);
+      trilho.appendChild(dir);
+    }
+
+    bloco.appendChild(trilho);
+    area.appendChild(bloco);
+  });
+
+  atualizarFoco(false);
+}
+
+// Marca o cartão selecionado (o "foco" do controle remoto)
+function atualizarFoco(rolar) {
+  if (cartaoFocado) { cartaoFocado.classList.remove("foco"); cartaoFocado.classList.remove("longo"); }
+  cartaoFocado = null;
+  el("busca-caixa").classList.toggle("foco", zona === "busca");
+
+  const cartao = cartoes[cur.r] && cartoes[cur.r][cur.c];
+  if (cartao && zona === "grade") {
+    cartao.classList.add("foco");
+    cartaoFocado = cartao;
+    prepararRolagem(cartao);
+    if (rolar) cartao.scrollIntoView({ block: "center", inline: "center" });
+  }
+}
+
+// Se o nome não cabe no cartão, faz o texto correr (vai e volta) para dar pra ler tudo
+function prepararRolagem(card) {
+  const janela = card.querySelector(".nome-j");
+  if (!janela) return;                                  // cartão "Ver todos" não tem nome
+  const extra = janela.scrollWidth - janela.clientWidth;
+  if (extra > 2) {
+    const texto = janela.firstChild;
+    texto.style.setProperty("--desloca", "-" + (extra + 6) + "px");
+    texto.style.setProperty("--tempo", (2 + extra / 45).toFixed(1) + "s");
+    card.classList.add("longo");
+  }
+}
+
+function itemFocado() {
+  const l = view.linhas[cur.r];
+  return l ? l.itens[cur.c] : null;
+}
+
+function mover(dr, dc) {
+  const linhas = view.linhas;
+  if (!linhas.length) {
+    if (dr < 0) { zona = "busca"; atualizarFoco(false); }
+    return;
+  }
+  if (dc) cur.c = Math.max(0, Math.min(linhas[cur.r].itens.length - 1, cur.c + dc));
+  if (dr) {
+    const nr = cur.r + dr;
+    if (nr < 0) { zona = "busca"; atualizarFoco(false); return; }   // sobe até a caixa de busca
+    if (nr >= linhas.length) return;
+    cur.r = nr;
+    cur.c = Math.min(cur.c, linhas[nr].itens.length - 1);
+  }
+  atualizarFoco(true);
+}
+
+// ============================================================
+//  GUIA: abrir, fechar, navegar
+// ============================================================
+function irHome() {
+  montarHome();
+  cur = { r: 0, c: 0 };
+  zona = "grade";
+  renderizar();
+  el("conteudo").scrollTop = 0;
+}
+
+function abrirCategoria(g) {
+  el("busca").value = "";
+  montarGrade(g, porGrupo[g], "categoria");
+  cur = { r: 0, c: 0 };
+  zona = "grade";
+  renderizar();
+  el("conteudo").scrollTop = 0;
+}
+
+function atualizarBusca() {
+  const q = el("busca").value.trim();
+  if (!q) { irHome(); return; }
+  montarBusca(q);
+  cur = { r: 0, c: 0 };
+  renderizar();
+  el("conteudo").scrollTop = 0;
+}
+
+function limparBusca() {
+  el("busca").value = "";
+  irHome();
+}
+
+// refaz a tela atual (usado quando a janela muda de tamanho)
+function refazerView() {
+  const q = el("busca").value.trim();
+  if (q) montarBusca(q);
+  else if (view.tipo === "categoria") montarGrade(view.grupo, porGrupo[view.grupo], "categoria");
+  else montarHome();
+  const l = view.linhas;
+  if (cur.r >= l.length) cur.r = Math.max(0, l.length - 1);
+  if (l[cur.r] && cur.c >= l[cur.r].itens.length) cur.c = Math.max(0, l[cur.r].itens.length - 1);
+  renderizar();
+}
+
+function abrirGuia() {
+  if (estado !== "ligado") return;
+  menuAberto = true;
+  el("guia").classList.add("on");
+  el("controles").classList.remove("visivel");
+
+  // enquanto escolhe o canal, o som fica mudo
+  const v = el("video");
+  if (!v.muted) { v.muted = true; mudoPeloGuia = true; }
+
+  zona = "grade";
+  if (el("busca").value.trim()) refazerView(); else irHome();
+}
+
+function fecharGuia() {
+  if (!atual) { mostrarAviso("Escolha um canal para começar", 1800); return; }
+  menuAberto = false;
+  el("guia").classList.remove("on");
+  el("busca").blur();
+
+  // volta o som (só se foi o guia que deixou mudo; se você mesmo pôs no mudo, continua mudo)
+  if (mudoPeloGuia) { el("video").muted = false; mudoPeloGuia = false; }
+}
+
+function voltarGuia() {
+  if (el("busca").value.trim() || view.tipo !== "home") { limparBusca(); return; }
+  fecharGuia();
+}
+
+function ativar(item, linha) {
+  if (!item) return;
+  if (item.verTodos) { abrirCategoria(item.verTodos); return; }
+  tocar(item, linha.todos);
+  fecharGuia();
+}
+
+// Enter na caixa de busca: assiste o melhor resultado
+function jogarMelhor() {
+  const r = view.resultado || [];
+  if (view.tipo !== "busca" || r.length === 0) { mostrarAviso("Nenhum canal encontrado", 1800); return; }
+  el("busca").value = "";
+  el("busca").blur();
+  zona = "grade";
+  tocar(r[0], r);
+  fecharGuia();
+}
+
+el("busca").oninput = atualizarBusca;
+el("busca").onfocus = () => { zona = "busca"; atualizarFoco(false); };
+el("busca").onblur = () => { if (zona === "busca") { zona = "grade"; atualizarFoco(false); } };
+el("btn-fechar").onclick = fecharGuia;
+
+window.addEventListener("resize", () => {
+  clearTimeout(tResize);
+  tResize = setTimeout(() => { if (menuAberto && view.tipo !== "home") refazerView(); }, 200);
+});
+
+// ============================================================
+//  CONTROLE REMOTO / TECLADO
+// ============================================================
+function nomeTecla(e) {
+  const c = e.keyCode, k = e.key;
+  if (k === "Enter" || c === 13) return "ok";
+  if (k === "ArrowUp" || c === 38) return "cima";
+  if (k === "ArrowDown" || c === 40) return "baixo";
+  if (k === "ArrowLeft" || c === 37) return "esquerda";
+  if (k === "ArrowRight" || c === 39) return "direita";
+  if (k === "PageUp" || c === 33 || c === 427) return "canal+";
+  if (k === "PageDown" || c === 34 || c === 428) return "canal-";
+  if (k === "Escape" || k === "Backspace" || c === 27 || c === 8 || c === 10009 || c === 461) return "voltar";
+  if (k === "*" || c === 405 || c === 45) return "fav";            // * , botão amarelo ou Insert
+  return "";
+}
+
+document.addEventListener("keydown", e => {
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  const k = e.key || "";
+
+  // digitando na caixa de busca
+  if (document.activeElement === el("busca")) { teclaNaBusca(e); return; }
+
+  const t = nomeTecla(e);
+  if (estado !== "ligado") { if (t === "ok") { e.preventDefault(); acaoInicio(); } return; }
+
+  // letras e números
+  if (k.length === 1 && /[a-zA-Z0-9À-ÿ]/.test(k)) {
+    if (!menuAberto && /[0-9]/.test(k)) { e.preventDefault(); digitar(k); return; }   // número = vai direto ao canal
+    if (!menuAberto) abrirGuia();                                                      // letra = abre a busca
+    zona = "busca";
+    el("busca").focus();                          // o caractere digitado entra na caixa de busca
+    return;
+  }
+
+  if (!t) return;
+  e.preventDefault();
+  if (menuAberto) teclasGuia(t); else teclasTV(t);
+});
+
+function teclaNaBusca(e) {
+  const k = e.key, c = e.keyCode;
+  if (k === "Enter" || c === 13) { e.preventDefault(); jogarMelhor(); }
+  else if (k === "ArrowDown" || c === 40) {
+    e.preventDefault();
+    el("busca").blur();
+    zona = "grade";
+    cur = { r: 0, c: 0 };
+    atualizarFoco(true);
+  }
+  else if (k === "Escape" || c === 27 || c === 10009 || c === 461) {
+    e.preventDefault();
+    el("busca").blur();
+    limparBusca();
+  }
+}
+
+// teclas quando está só assistindo
+function teclasTV(t) {
+  if (t === "ok" && bufferDigitos) confirmarDigitos();
+  else if (t === "cima" || t === "canal+") zap(1);
+  else if (t === "baixo" || t === "canal-") zap(-1);
+  else if (t === "ok" || t === "esquerda") abrirGuia();
+  else if (t === "direita" || t === "fav") { if (atual) favoritar(atual); }
+}
+
+// teclas quando o guia está aberto
+function teclasGuia(t) {
+  if (t === "voltar") { voltarGuia(); return; }
+
+  if (zona === "busca") {                         // caixa de busca selecionada (sem digitar ainda)
+    if (t === "ok") el("busca").focus();
+    else if (t === "baixo") { zona = "grade"; cur = { r: 0, c: 0 }; atualizarFoco(true); }
+    return;
+  }
+
+  if (t === "cima") mover(-1, 0);
+  else if (t === "baixo") mover(1, 0);
+  else if (t === "esquerda") mover(0, -1);
+  else if (t === "direita") mover(0, 1);
+  else if (t === "canal+") { for (let i = 0; i < 3 && zona === "grade"; i++) mover(-1, 0); }
+  else if (t === "canal-") { for (let i = 0; i < 3; i++) mover(1, 0); }
+  else if (t === "ok") { const it = itemFocado(); const l = view.linhas[cur.r]; if (it) ativar(it, l); }
+  else if (t === "fav") { const it = itemFocado(); if (it && !it.verTodos) favoritar(it); }
+}
+
+// ============================================================
+//  MOUSE (PC): botões do player
+// ============================================================
+function mostrarControles() {
+  if (estado !== "ligado" || menuAberto) return;
+  el("controles").classList.add("visivel");
+  document.body.classList.remove("ocioso");
+  clearTimeout(tControles);
+  tControles = setTimeout(() => {
+    el("controles").classList.remove("visivel");
+    document.body.classList.add("ocioso");
+  }, 3000);
+}
+document.addEventListener("mousemove", mostrarControles);
+document.addEventListener("touchstart", mostrarControles);
+
+function alternarTelaCheia() {
+  try {
+    if (document.fullscreenElement) document.exitFullscreen();
+    else if (document.documentElement.requestFullscreen) document.documentElement.requestFullscreen();
+  } catch (e) {}
+}
+
+el("btn-ant").onclick = () => zap(-1);
+el("btn-prox").onclick = () => zap(1);
+el("btn-fav").onclick = () => { if (atual) favoritar(atual); };
+el("btn-guia").onclick = abrirGuia;
+el("btn-tela").onclick = alternarTelaCheia;
+el("video").ondblclick = alternarTelaCheia;
+el("btn-mudo").onclick = () => {
+  const v = el("video");
+  v.muted = !v.muted;
+  el("btn-mudo").textContent = v.muted ? "🔇" : "🔊";
+};
+el("volume").oninput = () => {
+  const v = el("video");
+  v.volume = parseFloat(el("volume").value);
+  v.muted = false;
+  el("btn-mudo").textContent = "🔊";
+  guardar("volume", String(v.volume));
+};
+el("volume").onchange = () => el("volume").blur();     // para as setas não mexerem no volume
+
+// tira o foco dos botões depois do clique (assim Enter/setas continuam funcionando no controle)
+document.addEventListener("click", () => {
+  const a = document.activeElement;
+  if (a && a.tagName === "BUTTON") a.blur();
+});
+
+// ============================================================
+//  TELA INICIAL
+// ============================================================
+function acaoInicio() {
+  if (estado === "pronto") ligar();
+  else if (estado === "sem-lista") el("input-arquivo").click();
+}
+el("inicio").onclick = acaoInicio;
+
+function ligar() {
+  estado = "ligado";
+  el("inicio").style.display = "none";
+
+  const v = el("video");
+  const vol = parseFloat(ler("volume"));
+  v.volume = isNaN(vol) ? 1 : vol;
+  el("volume").value = v.volume;
+
+  const c = porUrl[ler("ultimo")];
+  if (c) tocar(c, null); else abrirGuia();
+}
+
+// escolher arquivo da lista (plano B)
+el("input-arquivo").onchange = e => {
+  const f = e.target.files[0];
+  if (!f) return;
+  const leitor = new FileReader();
+  leitor.onload = () => {
+    dbGuardar("lista", { texto: leitor.result, quando: Date.now(), link: "arquivo" });
+    usarLista(leitor.result);
+  };
+  leitor.readAsText(f);
+};
+
+iniciar();
+</script>
+</body>
+</html>
