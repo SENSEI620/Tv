@@ -431,6 +431,13 @@ function favoritar(canal) {
 // ============================================================
 //  TOCAR O CANAL
 // ============================================================
+// Proxy do Vercel (api/proxy.js): resolve links http e bloqueios de CORS.
+// Só existe quando a página roda num servidor (não funciona abrindo o arquivo direto).
+const TEM_PROXY = location.protocol === "http:" || location.protocol === "https:";
+const urlProxy = u => "/api/proxy?u=" + encodeURIComponent(u);
+let tentativaId = 0;        // evita que uma tentativa antiga mexa no canal atual
+let aoFalhar = null;
+
 function tocar(canal, lista) {
   atual = canal;
   listaZap = lista || canais;
@@ -441,34 +448,53 @@ function tocar(canal, lista) {
   guardar("ultimo", canal.url);
 
   el("aviso").style.display = "none";
+  clearTimeout(tAviso);
   el("carregando").style.display = "block";
+  iniciarReproducao(canal.url, false);
+  mostrarInfo(canal);
+  atualizarBotoes();
+}
+
+// Toca o link. Se for http dentro de uma página https, já vai direto pelo proxy.
+// Se falhar tocando direto, tenta uma vez pelo proxy antes de desistir.
+function iniciarReproducao(url, viaProxy) {
+  const id = ++tentativaId;
   const v = el("video");
   if (hls) { hls.destroy(); hls = null; }
 
-  if (canal.url.indexOf(".m3u8") !== -1 && window.Hls && Hls.isSupported()) {
-    hls = new Hls();
-    hls.loadSource(canal.url);
+  const ehHttp = url.indexOf("http:") === 0;
+  const usarProxy = TEM_PROXY && (viaProxy || (ehHttp && location.protocol === "https:"));
+  const final = usarProxy ? urlProxy(url) : url;
+
+  aoFalhar = () => {
+    if (id !== tentativaId) return;               // tentativa antiga, ignora
+    if (!usarProxy && TEM_PROXY) { iniciarReproducao(url, true); return; }
+    foraDoAr();
+  };
+
+  if (url.indexOf(".m3u8") !== -1 && window.Hls && Hls.isSupported()) {
+    hls = new Hls({
+      manifestLoadingTimeOut: 10000, manifestLoadingMaxRetry: 1,
+      levelLoadingMaxRetry: 1, fragLoadingMaxRetry: 2
+    });
+    hls.loadSource(final);
     hls.attachMedia(v);
-    hls.on(Hls.Events.ERROR, (ev, d) => { if (d.fatal) foraDoAr(); });
+    hls.on(Hls.Events.ERROR, (ev, d) => { if (d.fatal && aoFalhar) aoFalhar(); });
   } else {
-    v.src = canal.url;
+    v.src = final;
   }
   v.play().catch(() => {});
-  mostrarInfo(canal);
-  atualizarBotoes();
 }
 
 function foraDoAr() {
   el("carregando").style.display = "none";
   let msg = "Esse canal está fora do ar ou bloqueado.\nUse ▲ ▼ para trocar de canal.";
-  if (atual && atual.url.indexOf("http:") === 0 && location.protocol === "https:")
-    msg = "Esse canal usa um link http e o navegador bloqueou.\nUse ▲ ▼ para trocar de canal.";
-  mostrarAviso(msg, 0);
+  mostrarAviso(msg, 3000);   // some sozinho em 3 segundos
 }
 
 el("video").onplaying = () => { el("carregando").style.display = "none"; };
 el("video").onwaiting = () => { if (atual) el("carregando").style.display = "block"; };
-el("video").onerror = () => { if (atual) foraDoAr(); };
+el("video").onerror = () => { if (atual && aoFalhar) aoFalhar(); };
 
 // trocar de canal com ▲ ▼ (dentro da última lista que você usou)
 function zap(delta) {
