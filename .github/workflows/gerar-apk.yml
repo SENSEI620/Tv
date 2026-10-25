@@ -1,0 +1,46 @@
+name: Gerar APK da Minha TV
+
+on:
+  push:
+    paths:
+      - 'index.html'
+      - 'android/**'
+      - '.github/workflows/gerar-apk.yml'
+  workflow_dispatch:      # permite rodar na mão (aba Actions → Run workflow)
+
+permissions:
+  contents: write         # necessário para publicar o APK na aba Releases
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Colocar o index.html dentro do app
+        run: |
+          mkdir -p android/app/src/main/assets
+          cp index.html android/app/src/main/assets/index.html
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+
+      - name: Compilar
+        run: gradle -p android assembleDebug --no-daemon -PvCode=${{ github.run_number }}
+
+      - name: Renomear o APK
+        run: cp android/app/build/outputs/apk/debug/app-debug.apk minha-tv.apk
+
+      - name: Publicar na aba Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: apk-${{ github.run_number }}
+          name: Minha TV ${{ github.run_number }}
+          files: minha-tv.apk
+          make_latest: 'true'
