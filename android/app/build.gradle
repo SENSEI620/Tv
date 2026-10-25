@@ -11,8 +11,8 @@ android {
         minSdk 21
         targetSdk 34
         // o GitHub passa o número da compilação, assim cada versão nova pode atualizar a anterior
-        versionCode (project.findProperty('vCode') ?: '1').toInteger()
-        versionName '1.0'
+        versionCode = Integer.parseInt((project.findProperty('vCode') ?: '1').toString())
+        versionName = '1.0'
     }
 
     // chave fixa: sem ela, cada compilação teria uma assinatura diferente e a TV não deixaria atualizar o app
